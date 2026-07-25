@@ -1,40 +1,193 @@
-import curses
+from kivy.app import App
+from kivy.uix.widget import Widget
+from kivy.properties import NumericProperty, ReferenceListProperty, ObjectProperty
+from kivy.vector import Vector
+from kivy.clock import Clock
+from kivy.core.window import Window
 import random
-import time
 
-def main(stdscr):
-    # Отключаем отображение курсора
-    curses.curs_set(0)
+# Размеры сетки
+GRID_SIZE = 20
+CELL_SIZE = 20
+
+class SnakeHead(Widget):
+    pass
+
+class SnakeSegment(Widget):
+    pass
+
+class Food(Widget):
+    pass
+
+class SnakeGame(Widget):
+    snake = ObjectProperty(None)
+    food = ObjectProperty(None)
     
-    # Делаем getch() неблокирующим (не ждет нажатия клавиши)
-    stdscr.nodelay(True)
-    
-    # Устанавливаем таймаут ввода в миллисекундах
-    stdscr.timeout(100)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.snake_body = []
+        self.direction = Vector(0, -1)
+        self.next_direction = Vector(0, -1)
+        self.score = 0
+        self.game_over = False
+        self.speed = 0.15
+        self.init_game()
+        
+    def init_game(self):
+        # Начальная змейка из 3 сегментов
+        self.snake_body = []
+        start_x = self.width // 2 // CELL_SIZE * CELL_SIZE
+        start_y = self.height // 2 // CELL_SIZE * CELL_SIZE
+        
+        for i in range(3):
+            segment = SnakeSegment()
+            segment.size = (CELL_SIZE, CELL_SIZE)
+            segment.pos = (start_x + i * CELL_SIZE, start_y)
+            self.add_widget(segment)
+            self.snake_body.append(segment)
+        
+        # Голова (первый сегмент)
+        self.snake = self.snake_body[0]
+        self.snake.size = (CELL_SIZE, CELL_SIZE)
+        
+        # Еда
+        self.food = Food()
+        self.food.size = (CELL_SIZE, CELL_SIZE)
+        self.spawn_food()
+        self.add_widget(self.food)
+        
+        self.game_over = False
+        self.score = 0
+        self.direction = Vector(0, -1)
+        self.next_direction = Vector(0, -1)
+        
+        # Запуск таймера
+        Clock.schedule_interval(self.update, self.speed)
+        
+        # Привязка клавиш
+        self._keyboard = Window.request_keyboard(self._keyboard_closed, self)
+        self._keyboard.bind(on_key_down=self._on_keyboard_down)
+        
+    def _keyboard_closed(self):
+        self._keyboard.unbind(on_key_down=self._on_keyboard_down)
+        self._keyboard = None
+        
+    def _on_keyboard_down(self, keyboard, keycode, text, modifiers):
+        if keycode[1] == 'up':
+            self.next_direction = Vector(0, 1)
+        elif keycode[1] == 'down':
+            self.next_direction = Vector(0, -1)
+        elif keycode[1] == 'left':
+            self.next_direction = Vector(-1, 0)
+        elif keycode[1] == 'right':
+            self.next_direction = Vector(1, 0)
+        elif keycode[1] == 'spacebar' and self.game_over:
+            self.restart()
+        return True
+        
+    def spawn_food(self):
+        # Поиск свободной клетки
+        while True:
+            x = random.randint(0, (self.width // CELL_SIZE) - 1) * CELL_SIZE
+            y = random.randint(0, (self.height // CELL_SIZE) - 1) * CELL_SIZE
+            self.food.pos = (x, y)
+            # Проверка, что еда не появилась внутри змейки
+            collision = False
+            for segment in self.snake_body:
+                if segment.collide_widget(self.food):
+                    collision = True
+                    break
+            if not collision:
+                break
+                
+    def update(self, dt):
+        if self.game_over:
+            return
+            
+        # Обновление направления
+        if self.next_direction != self.direction * -1:
+            self.direction = self.next_direction
+            
+        # Новая позиция головы
+        new_head_pos = self.snake.pos + self.direction * CELL_SIZE
+        
+        # Проверка столкновения с едой
+        if self.food.collide_point(new_head_pos[0] + CELL_SIZE/2, new_head_pos[1] + CELL_SIZE/2):
+            self.grow()
+            self.spawn_food()
+            self.score += 1
+            # Увеличение скорости
+            if self.speed > 0.08:
+                self.speed -= 0.005
+                Clock.unschedule(self.update)
+                Clock.schedule_interval(self.update, self.speed)
+        
+        # Движение змейки
+        head = self.snake_body[0]
+        head.pos = new_head_pos
+        
+        # Движение остальных сегментов
+        for i in range(1, len(self.snake_body)):
+            prev = self.snake_body[i-1]
+            current = self.snake_body[i]
+            # Сохраняем старую позицию предыдущего сегмента
+            current.pos = prev.pos - self.direction * CELL_SIZE
+        
+        # Проверка столкновения с границами
+        if (head.x < 0 or head.x >= self.width or 
+            head.y < 0 or head.y >= self.height):
+            self.game_over = True
+            self.show_game_over()
+            return
+            
+        # Проверка столкновения с собой (кроме головы)
+        for segment in self.snake_body[1:]:
+            if head.collide_widget(segment):
+                self.game_over = True
+                self.show_game_over()
+                return
+                
+    def grow(self):
+        # Добавление нового сегмента в конец
+        last = self.snake_body[-1]
+        new_segment = SnakeSegment()
+        new_segment.size = (CELL_SIZE, CELL_SIZE)
+        new_segment.pos = (last.x, last.y)
+        self.add_widget(new_segment)
+        self.snake_body.append(new_segment)
+        
+    def show_game_over(self):
+        from kivy.uix.label import Label
+        self.game_over_label = Label(
+            text=f"Game Over!\nScore: {self.score}\nPress SPACE to restart",
+            font_size='24sp',
+            color=(1, 1, 1, 1),
+            pos_hint={'center_x': 0.5, 'center_y': 0.5}
+        )
+        self.add_widget(self.game_over_label)
+        
+    def restart(self):
+        # Очистка
+        for segment in self.snake_body:
+            self.remove_widget(segment)
+        self.snake_body.clear()
+        self.remove_widget(self.game_over_label)
+        self.remove_widget(self.food)
+        
+        self.init_game()
 
-    # Получаем размеры экрана Termux
-    max_y, max_x = stdscr.getmaxyx()
 
-    # Размеры игрового поля
-    game_height = min(18, max_y - 6)
-    game_width = min(36, max_x - 4)
+class SnakeApp(App):
+    def build(self):
+        game = SnakeGame()
+        return game
+        
+    def on_start(self):
+        Window.size = (400, 600)
 
-    if game_height < 8 or game_width < 12:
-        stdscr.addstr(0, 0, "Экран слишком мал! Увеличьте шрифт или размер окна Termux.")
-        stdscr.refresh()
-        time.sleep(3)
-        return
 
-    # Создаем окно для игры
-    win = curses.newwin(game_height, game_width, 1, 1)
-    win.keypad(True)
-    win.nodelay(True)
-
-    # Начальные координаты змейки
-    snake_y = game_height // 2
-    snake_x = game_width // 4
-    snake = [
-        [snake_y, snake_x],
+if __name__ == '__main__':
+    SnakeApp().run()        [snake_y, snake_x],
         [snake_y, snake_x - 1],
         [snake_y, snake_x - 2]
     ]
