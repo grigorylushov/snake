@@ -25,16 +25,20 @@ jobs:
           pip install buildozer cython
           pip install --upgrade setuptools
       
-      - name: Build APK
-        run: buildozer android debug --force
+      - name: Build APK with verbose logs
+        run: |
+          buildozer android debug --force 2>&1 | tee build.log
+          cat build.log | tail -n 100
       
       - name: Rename and prepare APK
+        if: success()
         run: |
           mkdir -p release
           cp bin/*.apk release/snake-game.apk
           ls -la release/
       
       - name: Upload APK to Release
+        if: success()
         uses: softprops/action-gh-release@v1
         with:
           files: release/snake-game.apk
@@ -57,7 +61,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Upload APK as Artifact (backup)
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: snake-app
           path: bin/*.apk
+      
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
