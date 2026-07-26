@@ -12,7 +12,7 @@ fullscreen = 0
 
 android.api = 30
 android.minapi = 21
-android.ndk = 23b
+android.ndk = 25b
 android.accept_sdk_license = True
 android.archs = arm64-v8a, armeabi-v7a
 android.allow_backup = True
